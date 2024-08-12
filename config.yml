@@ -1,0 +1,9 @@
+---
+
+env: local
+endpoint:
+  url: https://example.battery/api
+  token: auth-token
+start_time: 16:43
+stop_time: 16:48
+battery_limit: 20
