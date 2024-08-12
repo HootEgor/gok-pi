@@ -44,15 +44,19 @@ func (d *Discharge) Run() error {
 		if err != nil {
 			return fmt.Errorf("parsing stop time: %w", err)
 		}
+		if startTime.After(stopTime) {
+			stopTime = stopTime.Add(24 * time.Hour)
+		}
 		now := time.Now()
 		d.log.With(
-			slog.String("start_time", startTime.Format("15:04")),
-			slog.String("stop_time", stopTime.Format("15:04")),
-			slog.Time("now", now),
+			slog.String("start_time", startTime.Format(time.DateTime)),
+			slog.String("stop_time", stopTime.Format(time.DateTime)),
+			slog.String("now", now.Format(time.DateTime)),
+			slog.Int("limit", d.batteryLimit),
 		).Info("next cycle")
 
 		// If start time has passed for today, schedule for the next day
-		if now.After(startTime) {
+		if now.After(stopTime) {
 			startTime = startTime.Add(24 * time.Hour)
 		}
 
@@ -62,10 +66,11 @@ func (d *Discharge) Run() error {
 		<-startTimer.C
 
 		// Check the battery status
-		d.log.Info("starting battery discharge process...")
+		d.log.With(slog.Int("limit", d.batteryLimit)).Info("starting battery discharge process...")
 		status, err := d.client.Status()
 		if err != nil {
-			return fmt.Errorf("checking battery status: %w", err)
+			d.log.With(sl.Err(err)).Error("checking battery status")
+			continue
 		}
 
 		if status.Level > d.batteryLimit {

@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	maxRetry  = 10
-	retryStep = 5
+	maxRetry  = 5
+	retryStep = 3
 )
 
 var httpClient = &http.Client{}
@@ -83,8 +83,7 @@ func (c *ApiClient) requestWithRetry(method string, data interface{}, params ...
 		}
 		log.With(
 			slog.Int("attempt", i+1),
-			sl.Err(err),
-		).Warn("retrying request")
+		).Debug("retrying request")
 		time.Sleep(time.Duration((i+1)*retryStep) * time.Second)
 	}
 	return nil, fmt.Errorf("request failed after %d retries", maxRetry)
