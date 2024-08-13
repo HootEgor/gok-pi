@@ -36,11 +36,11 @@ type BatteryInfo struct {
 	UsableRemainingCapacity  float64 `json:"usableremainingcapacity"`
 }
 
-func Parse(body []byte) (*BatteryInfo, error) {
-	var status BatteryInfo
-	err := json.Unmarshal(body, &status)
+func ParseBatteryInfo(body []byte) (*BatteryInfo, error) {
+	var info BatteryInfo
+	err := json.Unmarshal(body, &info)
 	if err != nil {
-		return nil, fmt.Errorf("unmarshal status body: %s", err)
+		return nil, fmt.Errorf("unmarshal battery info body: %s", err)
 	}
-	return &status, nil
+	return &info, nil
 }

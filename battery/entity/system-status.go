@@ -1,5 +1,10 @@
 package entity
 
+import (
+	"encoding/json"
+	"fmt"
+)
+
 type SystemStatus struct {
 	ApparentOutput            int         `json:"Apparent_output"`
 	BackupBuffer              string      `json:"BackupBuffer"`
@@ -31,4 +36,13 @@ type SystemStatus struct {
 	Ubat                      int         `json:"Ubat"`
 	DischargeNotAllowed       bool        `json:"dischargeNotAllowed"`
 	GeneratorAutostart        bool        `json:"generator_autostart"`
+}
+
+func ParseSystemStatus(body []byte) (*SystemStatus, error) {
+	var status SystemStatus
+	err := json.Unmarshal(body, &status)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshal status body: %s", err)
+	}
+	return &status, nil
 }

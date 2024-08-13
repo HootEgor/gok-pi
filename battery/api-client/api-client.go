@@ -36,12 +36,12 @@ func New(url, token string, log *slog.Logger) *ApiClient {
 	}
 }
 
-func (c *ApiClient) Status() (*entity.BatteryInfo, error) {
+func (c *ApiClient) Status() (*entity.SystemStatus, error) {
 	body, err := c.requestWithRetry(http.MethodGet, nil, c.url, "status")
 	if err != nil {
 		return nil, err
 	}
-	status, err := entity.Parse(body)
+	status, err := entity.ParseSystemStatus(body)
 	if err != nil {
 		return nil, fmt.Errorf("parsing status: %w", err)
 	}
