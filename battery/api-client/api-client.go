@@ -29,6 +29,10 @@ type ApiClient struct {
 }
 
 func New(url, token string, log *slog.Logger) *ApiClient {
+	log.With(
+		slog.String("url", url),
+		sl.Secret("token", token),
+	).Info("creating api client")
 	return &ApiClient{
 		url:   url,
 		token: token,

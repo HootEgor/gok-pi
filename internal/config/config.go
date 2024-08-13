@@ -12,7 +12,7 @@ type Config struct {
 	Endpoint struct {
 		Url   string `yaml:"url" env-default:"https://example.battery/api"`
 		Token string `yaml:"token" env-default:"auth-token"`
-	} `yaml:"uplink"`
+	} `yaml:"endpoint"`
 	StartTime    string `yaml:"start_time" env-default:"18:00"`
 	StopTime     string `yaml:"stop_time" env-default:"22:00"`
 	BatteryLimit int    `yaml:"battery_limit" env-default:"20"`

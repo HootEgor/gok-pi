@@ -18,7 +18,7 @@ type Client interface {
 type Discharge struct {
 	startTime    string
 	stopTime     string
-	batteryLimit int
+	batteryLimit float64
 	client       Client
 	log          *slog.Logger
 }
@@ -27,7 +27,7 @@ func New(startTime, stopTime string, batteryLimit int, client Client, log *slog.
 	return &Discharge{
 		startTime:    startTime,
 		stopTime:     stopTime,
-		batteryLimit: batteryLimit,
+		batteryLimit: float64(batteryLimit),
 		client:       client,
 		log:          log.With(sl.Module("battery.discharge")),
 	}, nil
@@ -52,7 +52,7 @@ func (d *Discharge) Run() error {
 			slog.String("start_time", startTime.Format(time.DateTime)),
 			slog.String("stop_time", stopTime.Format(time.DateTime)),
 			slog.String("now", now.Format(time.DateTime)),
-			slog.Int("limit", d.batteryLimit),
+			slog.Float64("limit", d.batteryLimit),
 		).Info("next cycle")
 
 		// If start time has passed for today, schedule for the next day
@@ -66,12 +66,18 @@ func (d *Discharge) Run() error {
 		<-startTimer.C
 
 		// Check the battery status
-		d.log.With(slog.Int("limit", d.batteryLimit)).Info("starting battery discharge process...")
+		d.log.With(slog.Float64("limit", d.batteryLimit)).Info("starting battery discharge process...")
 		status, err := d.client.Status()
 		if err != nil {
 			d.log.With(sl.Err(err)).Error("checking battery status")
+			time.Sleep(1 * time.Minute)
 			continue
 		}
+		d.log.With(
+			slog.Float64("RSOC", status.RSOC),
+			slog.Float64("consumption_W", status.ConsumptionW),
+			slog.Bool("discharge", status.BatteryDischarging),
+		).Info("status")
 
 		if status.RSOC > d.batteryLimit {
 			err = d.client.StartDischarge()
@@ -105,15 +111,27 @@ func (d *Discharge) monitorState(stopTime time.Time) {
 				d.log.With(sl.Err(err)).Error("checking battery status")
 				continue
 			}
+			d.log.With(
+				slog.Float64("RSOC", status.RSOC),
+				slog.Float64("consumption_W", status.ConsumptionW),
+				slog.Bool("discharge", status.BatteryDischarging),
+			).Info("status")
 
-			if status.RSOC <= d.batteryLimit {
-				d.log.With(slog.Int("RSOC", status.RSOC)).Info("battery level reached the limit, stopping discharge")
+			if status.RSOC <= d.batteryLimit && status.BatteryDischarging {
+				d.log.With(slog.Float64("RSOC", status.RSOC)).Info("battery level reached the limit, stopping discharge")
 				err = d.client.StopDischarge()
 				if err != nil {
 					d.log.With(sl.Err(err)).Error("stopping discharge")
 					continue
 				}
 				return
+			}
+
+			if status.BatteryDischarging == false {
+				err = d.client.StartDischarge()
+				if err != nil {
+					d.log.With(sl.Err(err)).Error("starting discharge")
+				}
 			}
 
 		case <-stopTimer.C:
