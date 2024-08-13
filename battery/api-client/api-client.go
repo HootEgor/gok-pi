@@ -36,7 +36,7 @@ func New(url, token string, log *slog.Logger) *ApiClient {
 	}
 }
 
-func (c *ApiClient) Status() (*entity.Status, error) {
+func (c *ApiClient) Status() (*entity.BatteryInfo, error) {
 	body, err := c.requestWithRetry(http.MethodGet, nil, c.url, "status")
 	if err != nil {
 		return nil, err
