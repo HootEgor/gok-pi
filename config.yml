@@ -7,3 +7,4 @@ endpoint:
 start_time: 20:00
 stop_time: 00:00
 battery_limit: 20
+power_limit: 10

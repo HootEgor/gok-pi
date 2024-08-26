@@ -52,12 +52,14 @@ func (c *ApiClient) Status() (*entity.SystemStatus, error) {
 	return status, nil
 }
 
-func (c *ApiClient) StartDischarge() error {
-	return nil
+func (c *ApiClient) StartDischarge(power int) error {
+	_, err := c.requestWithRetry(http.MethodPost, nil, c.url, "setpoint", "discharge", fmt.Sprintf("%d", power))
+	return err
 }
 
 func (c *ApiClient) StopDischarge() error {
-	return nil
+	_, err := c.requestWithRetry(http.MethodPost, nil, c.url, "setpoint", "discharge", "0")
+	return err
 }
 
 func (c *ApiClient) fullPath(params ...string) string {

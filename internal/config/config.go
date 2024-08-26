@@ -16,6 +16,7 @@ type Config struct {
 	StartTime    string `yaml:"start_time" env-default:"18:00"`
 	StopTime     string `yaml:"stop_time" env-default:"22:00"`
 	BatteryLimit int    `yaml:"battery_limit" env-default:"20"`
+	PowerLimit   int    `yaml:"power_limit" env-default:"1000"`
 }
 
 var instance *Config

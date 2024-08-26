@@ -11,7 +11,7 @@ import (
 
 type Client interface {
 	Status() (*entity.SystemStatus, error)
-	StartDischarge() error
+	StartDischarge(power int) error
 	StopDischarge() error
 }
 
@@ -19,15 +19,17 @@ type Discharge struct {
 	startTime    string
 	stopTime     string
 	batteryLimit float64
+	powerLimit   int
 	client       Client
 	log          *slog.Logger
 }
 
-func New(startTime, stopTime string, batteryLimit int, client Client, log *slog.Logger) (*Discharge, error) {
+func New(startTime, stopTime string, batteryLimit, powerLimit int, client Client, log *slog.Logger) (*Discharge, error) {
 	return &Discharge{
 		startTime:    startTime,
 		stopTime:     stopTime,
 		batteryLimit: float64(batteryLimit),
+		powerLimit:   powerLimit,
 		client:       client,
 		log:          log.With(sl.Module("battery.discharge")),
 	}, nil
@@ -74,22 +76,22 @@ func (d *Discharge) Run() error {
 			continue
 		}
 		d.log.With(
-			slog.Float64("RSOC", status.RSOC),
-			slog.Float64("consumption_W", status.ConsumptionW),
+			slog.Float64("remaining capacity", status.RemainingCapacityWh),
+			slog.Float64("consumption", status.ConsumptionW),
 			slog.Bool("discharge", status.BatteryDischarging),
 		).Info("status")
 
-		if status.RSOC > d.batteryLimit {
-			err = d.client.StartDischarge()
-			if err != nil {
-				d.log.With(sl.Err(err)).Error("starting discharge")
-			}
+		if status.RemainingCapacityWh > d.batteryLimit {
+			//err = d.client.StartDischarge()
+			//if err != nil {
+			//	d.log.With(sl.Err(err)).Error("starting discharge")
+			//}
 
 			// Start monitoring battery status during discharge
 			d.monitorState(stopTime)
 
 		} else {
-			d.log.Info("battery level is below the limit, no discharge needed.")
+			d.log.Info("battery level is below the limit, no discharge needed")
 		}
 
 		d.log.Info("waiting for the next cycle...")
@@ -111,14 +113,14 @@ func (d *Discharge) monitorState(stopTime time.Time) {
 				d.log.With(sl.Err(err)).Error("checking battery status")
 				continue
 			}
-			d.log.With(
-				slog.Float64("RSOC", status.RSOC),
-				slog.Float64("consumption_W", status.ConsumptionW),
+			log := d.log.With(
+				slog.Float64("remaining capacity", status.RemainingCapacityWh),
+				slog.Float64("consumption", status.ConsumptionW),
 				slog.Bool("discharge", status.BatteryDischarging),
-			).Info("status")
+			)
 
-			if status.RSOC <= d.batteryLimit && status.BatteryDischarging {
-				d.log.With(slog.Float64("RSOC", status.RSOC)).Info("battery level reached the limit, stopping discharge")
+			if status.RemainingCapacityWh <= d.batteryLimit && status.BatteryDischarging {
+				log.Info("battery level reached the limit, stopping discharge")
 				err = d.client.StopDischarge()
 				if err != nil {
 					d.log.With(sl.Err(err)).Error("stopping discharge")
@@ -128,10 +130,27 @@ func (d *Discharge) monitorState(stopTime time.Time) {
 			}
 
 			if status.BatteryDischarging == false {
-				err = d.client.StartDischarge()
+
+				dischargePower := d.calculateRate(status.RemainingCapacityWh, stopTime)
+				log = log.With(slog.Int("discharge_power", dischargePower))
+				if dischargePower == 0 {
+					log.Warn("discharge power is zero, stopping discharge")
+					err = d.client.StopDischarge()
+					if err != nil {
+						d.log.With(sl.Err(err)).Error("stopping discharge")
+						continue
+					}
+					return
+				}
+
+				log.Info("starting discharge")
+				err = d.client.StartDischarge(dischargePower)
 				if err != nil {
 					d.log.With(sl.Err(err)).Error("starting discharge")
 				}
+
+			} else {
+				log.Info("discharge is running")
 			}
 
 		case <-stopTimer.C:
@@ -143,4 +162,21 @@ func (d *Discharge) monitorState(stopTime time.Time) {
 			return
 		}
 	}
+}
+
+// calculate discharge rate as Wh/h
+func (d *Discharge) calculateRate(capacity float64, stopTime time.Time) int {
+	estimate := capacity - d.batteryLimit
+	if estimate <= 0 {
+		return 0
+	}
+	remainingTime := stopTime.Sub(time.Now())
+	if remainingTime <= 0 {
+		return 0
+	}
+	rate := estimate / remainingTime.Hours()
+	if rate > float64(d.powerLimit) {
+		return d.powerLimit
+	}
+	return int(rate)
 }

@@ -24,7 +24,7 @@ func main() {
 
 	api := apiclient.New(conf.Endpoint.Url, conf.Endpoint.Token, lg)
 
-	worker, err := discharger.New(conf.StartTime, conf.StopTime, conf.BatteryLimit, api, lg)
+	worker, err := discharger.New(conf.StartTime, conf.StopTime, conf.BatteryLimit, conf.PowerLimit, api, lg)
 	if err != nil {
 		lg.Error("creating discharge worker", sl.Err(err))
 	}
