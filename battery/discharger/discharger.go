@@ -16,22 +16,22 @@ type Client interface {
 }
 
 type Discharge struct {
-	startTime    string
-	stopTime     string
-	batteryLimit float64
-	powerLimit   int
-	client       Client
-	log          *slog.Logger
+	startTime     string
+	stopTime      string
+	capacityLimit float64
+	powerLimit    int
+	client        Client
+	log           *slog.Logger
 }
 
-func New(startTime, stopTime string, batteryLimit, powerLimit int, client Client, log *slog.Logger) (*Discharge, error) {
+func New(startTime, stopTime string, capacityLimit, powerLimit int, client Client, log *slog.Logger) (*Discharge, error) {
 	return &Discharge{
-		startTime:    startTime,
-		stopTime:     stopTime,
-		batteryLimit: float64(batteryLimit),
-		powerLimit:   powerLimit,
-		client:       client,
-		log:          log.With(sl.Module("battery.discharge")),
+		startTime:     startTime,
+		stopTime:      stopTime,
+		capacityLimit: float64(capacityLimit),
+		powerLimit:    powerLimit,
+		client:        client,
+		log:           log.With(sl.Module("battery.discharger")),
 	}, nil
 }
 
@@ -50,48 +50,43 @@ func (d *Discharge) Run() error {
 			stopTime = stopTime.Add(24 * time.Hour)
 		}
 		now := time.Now()
+		// If start time has passed for today, schedule for the next day
+		if now.After(stopTime) {
+			startTime = startTime.Add(24 * time.Hour)
+			stopTime = stopTime.Add(24 * time.Hour)
+		}
 		d.log.With(
 			slog.String("start_time", startTime.Format(time.DateTime)),
 			slog.String("stop_time", stopTime.Format(time.DateTime)),
 			slog.String("now", now.Format(time.DateTime)),
-			slog.Float64("limit", d.batteryLimit),
+			slog.Float64("capacity_limit", d.capacityLimit),
 		).Info("next cycle")
 
-		// If start time has passed for today, schedule for the next day
-		if now.After(stopTime) {
-			startTime = startTime.Add(24 * time.Hour)
-		}
-
 		startTimer := time.NewTimer(startTime.Sub(now))
-
-		d.log.With(slog.Time("start_time", startTime)).Info("waiting until start time")
 		<-startTimer.C
 
 		// Check the battery status
-		d.log.With(slog.Float64("limit", d.batteryLimit)).Info("starting battery discharge process...")
 		status, err := d.client.Status()
 		if err != nil {
 			d.log.With(sl.Err(err)).Error("checking battery status")
 			time.Sleep(1 * time.Minute)
 			continue
 		}
-		d.log.With(
-			slog.Float64("remaining capacity", status.RemainingCapacityWh),
+		log := d.log.With(
+			slog.Float64("remaining_capacity", status.RemainingCapacityWh),
+			slog.Float64("SoC", status.RSOC),
 			slog.Float64("consumption", status.ConsumptionW),
 			slog.Bool("discharge", status.BatteryDischarging),
-		).Info("status")
+		)
 
-		if status.RemainingCapacityWh > d.batteryLimit {
-			//err = d.client.StartDischarge()
-			//if err != nil {
-			//	d.log.With(sl.Err(err)).Error("starting discharge")
-			//}
+		if status.RemainingCapacityWh > d.capacityLimit {
 
+			log.Info("starting discharge")
 			// Start monitoring battery status during discharge
 			d.monitorState(stopTime)
 
 		} else {
-			d.log.Info("battery level is below the limit, no discharge needed")
+			log.Info("battery level is below the limit, no discharge needed")
 		}
 
 		d.log.Info("waiting for the next cycle...")
@@ -115,11 +110,12 @@ func (d *Discharge) monitorState(stopTime time.Time) {
 			}
 			log := d.log.With(
 				slog.Float64("remaining capacity", status.RemainingCapacityWh),
+				slog.Float64("SoC", status.RSOC),
 				slog.Float64("consumption", status.ConsumptionW),
 				slog.Bool("discharge", status.BatteryDischarging),
 			)
 
-			if status.RemainingCapacityWh <= d.batteryLimit && status.BatteryDischarging {
+			if status.RemainingCapacityWh <= d.capacityLimit && status.BatteryDischarging {
 				log.Info("battery level reached the limit, stopping discharge")
 				err = d.client.StopDischarge()
 				if err != nil {
@@ -166,7 +162,7 @@ func (d *Discharge) monitorState(stopTime time.Time) {
 
 // calculate discharge rate as Wh/h
 func (d *Discharge) calculateRate(capacity float64, stopTime time.Time) int {
-	estimate := capacity - d.batteryLimit
+	estimate := capacity - d.capacityLimit
 	if estimate <= 0 {
 		return 0
 	}

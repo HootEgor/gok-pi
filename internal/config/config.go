@@ -8,15 +8,19 @@ import (
 )
 
 type Config struct {
-	Env      string `yaml:"env" env-default:"local" env-required:"true"`
-	Endpoint struct {
-		Url   string `yaml:"url" env-default:"https://example.battery/api"`
-		Token string `yaml:"token" env-default:"auth-token"`
-	} `yaml:"endpoint"`
-	StartTime    string `yaml:"start_time" env-default:"18:00"`
-	StopTime     string `yaml:"stop_time" env-default:"22:00"`
-	BatteryLimit int    `yaml:"battery_limit" env-default:"20"`
-	PowerLimit   int    `yaml:"power_limit" env-default:"1000"`
+	Env       string          `yaml:"env" env-default:"local" env-required:"true"`
+	StartTime string          `yaml:"start_time" env-default:"18:00"`
+	StopTime  string          `yaml:"stop_time" env-default:"22:00"`
+	Batteries []BatteryConfig `yaml:"batteries"`
+}
+
+type BatteryConfig struct {
+	Name          string `yaml:"name" env-default:"battery1"`
+	Url           string `yaml:"url" env-default:"https://example.battery/api"`
+	Token         string `yaml:"token" env-default:"auth-token"`
+	Enabled       bool   `yaml:"enabled" env-default:"true"`
+	CapacityLimit int    `yaml:"capacity_limit" env-default:"20000"`
+	PowerLimit    int    `yaml:"power_limit" env-default:"1000"`
 }
 
 var instance *Config

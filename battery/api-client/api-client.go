@@ -36,7 +36,7 @@ func New(url, token string, log *slog.Logger) *ApiClient {
 	return &ApiClient{
 		url:   url,
 		token: token,
-		log:   log.With(sl.Module("battery.client")),
+		log:   log.With(sl.Module("client")),
 	}
 }
 
