@@ -13,6 +13,8 @@ type Client interface {
 	Status() (*entity.SystemStatus, error)
 	StartDischarge(power int) error
 	StopDischarge() error
+	SwitchOperatingModeToManual(currentMode string) error
+	SwitchOperatingModeToAuto() error
 }
 
 type Discharge struct {
@@ -73,6 +75,7 @@ func (d *Discharge) Run() error {
 			continue
 		}
 		log := d.log.With(
+			slog.String("operating_mode", status.OperatingMode),
 			slog.Float64("remaining_capacity", status.RemainingCapacityWh),
 			slog.Float64("SoC", status.RSOC),
 			slog.Float64("consumption", status.ConsumptionW),
@@ -98,6 +101,13 @@ func (d *Discharge) monitorState(stopTime time.Time) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
+	defer func() {
+		err := d.client.SwitchOperatingModeToAuto()
+		if err != nil {
+			d.log.With(sl.Err(err)).Error("switching operating mode")
+		}
+	}()
+
 	stopTimer := time.NewTimer(stopTime.Sub(time.Now()))
 
 	for {
@@ -109,6 +119,7 @@ func (d *Discharge) monitorState(stopTime time.Time) {
 				continue
 			}
 			log := d.log.With(
+				slog.String("operating_mode", status.OperatingMode),
 				slog.Float64("remaining capacity", status.RemainingCapacityWh),
 				slog.Float64("SoC", status.RSOC),
 				slog.Float64("consumption", status.ConsumptionW),
@@ -126,6 +137,12 @@ func (d *Discharge) monitorState(stopTime time.Time) {
 			}
 
 			if status.BatteryDischarging == false {
+
+				err = d.client.SwitchOperatingModeToManual(status.OperatingMode)
+				if err != nil {
+					d.log.With(sl.Err(err)).Error("switching operating mode")
+					continue
+				}
 
 				dischargePower := d.calculateRate(status.RemainingCapacityWh, stopTime)
 				log = log.With(slog.Int("discharge_power", dischargePower))

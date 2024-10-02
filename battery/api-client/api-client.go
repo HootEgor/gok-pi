@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	maxRetry  = 5
-	retryStep = 3
+	maxRetry     = 5
+	retryStep    = 3
+	opModeAuto   = "2"
+	opModeManual = "1"
 )
 
 var httpClient = &http.Client{}
@@ -62,10 +64,33 @@ func (c *ApiClient) StopDischarge() error {
 	return err
 }
 
+// SwitchOperatingModeToManual switches the operating mode of the API client to manual.
+// It returns nil if the current mode is already set to manual, otherwise it sends a request to change the operating mode to manual.
+func (c *ApiClient) SwitchOperatingModeToManual(currentMode string) error {
+	if currentMode == opModeManual {
+		return nil
+	}
+	return c.doRequestChangeConfig("EM_OperatingMode", opModeManual)
+}
+
+// SwitchOperatingModeToAuto switches the operating mode of the API client to automatic.
+// It sends a request to change the operating mode to automatic.
+func (c *ApiClient) SwitchOperatingModeToAuto() error {
+	return c.doRequestChangeConfig("EM_OperatingMode", opModeAuto)
+}
+
 func (c *ApiClient) fullPath(params ...string) string {
 	return strings.Join(params, "/")
 }
 
+// requestWithRetry sends an HTTP request with retry logic.
+// It takes in the HTTP method, request body data, and optional parameters strings.
+// It returns the response body if successful or an error if the request failed after the maximum number of retries.
+// If the request body data is not nil, it converts the data into JSON format.
+// If marshalling the data fails, it returns an error.
+// It retries the request up to a maximum number of times, with a delay between each retry.
+// The maximum number of retries and the delay between retries are defined by constants.
+// After the maximum number of retries, it returns an error indicating the request failure.
 func (c *ApiClient) requestWithRetry(method string, data interface{}, params ...string) ([]byte, error) {
 	path := c.fullPath(params...)
 	log := c.log.With(
@@ -83,7 +108,7 @@ func (c *ApiClient) requestWithRetry(method string, data interface{}, params ...
 	}
 
 	for i := 0; i < maxRetry; i++ {
-		responseBody, err := c.doRequest(method, path, body)
+		responseBody, err := c.doRequest(method, path, bytes.NewReader(body))
 		if err == nil {
 			return responseBody, nil
 		}
@@ -95,7 +120,7 @@ func (c *ApiClient) requestWithRetry(method string, data interface{}, params ...
 	return nil, fmt.Errorf("request failed after %d retries", maxRetry)
 }
 
-func (c *ApiClient) doRequest(method, url string, body []byte) ([]byte, error) {
+func (c *ApiClient) doRequest(method, url string, reader io.Reader) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -115,7 +140,7 @@ func (c *ApiClient) doRequest(method, url string, body []byte) ([]byte, error) {
 		}
 	}()
 
-	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, url, reader)
 	if err != nil {
 		return nil, err
 	}
@@ -139,9 +164,61 @@ func (c *ApiClient) doRequest(method, url string, body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	body, err = io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 	return body, nil
+}
+
+// doRequestChangeConfig sends a request to change the configuration of the API client.
+// It takes in a parameter name and its corresponding value as input strings.
+// It returns nil if the request is successful, otherwise it returns an error.
+// The request is sent as a PUT method to the "configurations" endpoint with the specified parameter and value in the request body.
+// The request is made with a timeout of 5 seconds.
+// If the request fails with a status code of 400 or higher, an error is returned.
+func (c *ApiClient) doRequestChangeConfig(parameter, value string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	url := c.fullPath(c.url, "configurations")
+	reader := strings.NewReader(fmt.Sprintf(`%s=%s`, parameter, value))
+
+	var err error
+	log := c.log.With(
+		slog.String("url", url),
+		sl.Secret("token", c.token),
+		slog.String("method", "PUT"),
+		slog.String(parameter, value),
+	)
+	t1 := time.Now()
+	defer func() {
+		log = log.With(slog.Float64("duration", time.Since(t1).Seconds()))
+		if err != nil {
+			log.Error("change config request", sl.Err(err))
+		} else {
+			log.Debug("change config request")
+		}
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, reader)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Auth-Token", c.token)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = fmt.Errorf("request timeout")
+		}
+		return err
+	}
+
+	log = log.With(slog.Int("status", resp.StatusCode))
+	if resp.StatusCode >= 400 {
+		err = fmt.Errorf("received status code: %d", resp.StatusCode)
+		return err
+	}
+	return nil
 }
