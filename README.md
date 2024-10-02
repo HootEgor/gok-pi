@@ -13,7 +13,7 @@ This service could be utilized in residential, commercial, or utility-scale sett
 
 Sonnen's API provides a comprehensive set of controls and data for managing and monitoring a battery system. This includes functions for reading battery status, controlling battery charging and discharging, reading and setting battery parameters, and more. 
 
-Visit ![Sonnen website](https://sonnen.es/) for more info.
+Visit [Sonnen website](https://sonnen.es/) for more info.
 
 ## License
 
