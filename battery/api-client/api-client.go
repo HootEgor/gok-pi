@@ -206,6 +206,7 @@ func (c *ApiClient) doRequestChangeConfig(parameter, value string) error {
 		return err
 	}
 	req.Header.Set("Auth-Token", c.token)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
