@@ -1,10 +1,10 @@
 package discharger
 
 import (
-	"fmt"
 	"gok-pi/battery/entity"
 	"gok-pi/internal/lib/sl"
 	"gok-pi/internal/lib/timer"
+	"gok-pi/metrics/observers"
 	"log/slog"
 	"time"
 )
@@ -14,101 +14,44 @@ type Client interface {
 	StartDischarge(power int) error
 	StopDischarge() error
 	SwitchOperatingModeToManual(currentMode string) error
-	SwitchOperatingModeToAuto() error
+	SwitchOperatingModeToAuto(currentMode string) error
 }
 
 type Discharge struct {
+	name          string
 	startTime     string
 	stopTime      string
 	capacityLimit float64
 	powerLimit    int
+	socLimit      float64
+	isDischarging bool
 	client        Client
+	status        *entity.SystemStatus
 	log           *slog.Logger
 }
 
-func New(startTime, stopTime string, capacityLimit, powerLimit int, client Client, log *slog.Logger) (*Discharge, error) {
+func New(name string, client Client, log *slog.Logger) (*Discharge, error) {
 	return &Discharge{
-		startTime:     startTime,
-		stopTime:      stopTime,
-		capacityLimit: float64(capacityLimit),
-		powerLimit:    powerLimit,
-		client:        client,
-		log:           log.With(sl.Module("battery.discharger")),
+		name:   name,
+		client: client,
+		log:    log.With(sl.Module("battery.discharge")),
 	}, nil
 }
 
-func (d *Discharge) Run() error {
-	for {
-		// Calculate the start and stop times for today
-		startTime, err := timer.ParseTime(d.startTime)
-		if err != nil {
-			return fmt.Errorf("parsing start time: %w", err)
-		}
-		stopTime, err := timer.ParseTime(d.stopTime)
-		if err != nil {
-			return fmt.Errorf("parsing stop time: %w", err)
-		}
-		if startTime.After(stopTime) {
-			stopTime = stopTime.Add(24 * time.Hour)
-		}
-		now := time.Now()
-		// If start time has passed for today, schedule for the next day
-		if now.After(stopTime) {
-			startTime = startTime.Add(24 * time.Hour)
-			stopTime = stopTime.Add(24 * time.Hour)
-		}
-		d.log.With(
-			slog.String("start_time", startTime.Format(time.DateTime)),
-			slog.String("stop_time", stopTime.Format(time.DateTime)),
-			slog.String("now", now.Format(time.DateTime)),
-			slog.Float64("capacity_limit", d.capacityLimit),
-		).Info("next cycle")
-
-		startTimer := time.NewTimer(startTime.Sub(now))
-		<-startTimer.C
-
-		// Check the battery status
-		status, err := d.client.Status()
-		if err != nil {
-			d.log.With(sl.Err(err)).Error("checking battery status")
-			time.Sleep(1 * time.Minute)
-			continue
-		}
-		log := d.log.With(
-			slog.String("operating_mode", status.OperatingMode),
-			slog.Float64("remaining_capacity", status.RemainingCapacityWh),
-			slog.Float64("SoC", status.RSOC),
-			slog.Float64("consumption", status.ConsumptionW),
-			slog.Bool("discharge", status.BatteryDischarging),
-		)
-
-		if status.RemainingCapacityWh > d.capacityLimit {
-
-			log.Info("starting discharge")
-			// Start monitoring battery status during discharge
-			d.monitorState(stopTime)
-
-		} else {
-			log.Info("battery level is below the limit, no discharge needed")
-		}
-
-		d.log.Info("waiting for the next cycle...")
-		time.Sleep(24*time.Hour - time.Now().Sub(startTime))
-	}
+func (d *Discharge) SetLimits(capacityLimit, powerLimit, socLimit int) {
+	d.capacityLimit = float64(capacityLimit)
+	d.powerLimit = powerLimit
+	d.socLimit = float64(socLimit)
 }
 
-func (d *Discharge) monitorState(stopTime time.Time) {
-	ticker := time.NewTicker(1 * time.Minute)
+func (d *Discharge) SetTime(startTime, stopTime string) {
+	d.startTime = startTime
+	d.stopTime = stopTime
+}
+
+func (d *Discharge) Run() error {
+	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-
-	defer func() {
-		err := d.client.SwitchOperatingModeToAuto()
-		if err != nil {
-			d.log.With(sl.Err(err)).Error("switching operating mode")
-		}
-	}()
-
-	stopTimer := time.NewTimer(stopTime.Sub(time.Now()))
 
 	for {
 		select {
@@ -118,78 +61,137 @@ func (d *Discharge) monitorState(stopTime time.Time) {
 				d.log.With(sl.Err(err)).Error("checking battery status")
 				continue
 			}
-			log := d.log.With(
-				slog.String("operating_mode", status.OperatingMode),
-				slog.Float64("remaining capacity", status.RemainingCapacityWh),
-				slog.Float64("SoC", status.RSOC),
-				slog.Float64("consumption", status.ConsumptionW),
-				slog.Bool("discharge", status.BatteryDischarging),
-			)
+			d.status = status
+			d.observeStatus()
 
-			if status.RemainingCapacityWh <= d.capacityLimit && status.BatteryDischarging {
-				log.Info("battery level reached the limit, stopping discharge")
-				err = d.client.StopDischarge()
+			if d.isTimeToDischarge() && d.isReadyToDischarge() {
+				d.runDischarge()
+			} else {
+				err = d.stopDischarge()
 				if err != nil {
 					d.log.With(sl.Err(err)).Error("stopping discharge")
-					continue
 				}
-				return
 			}
-
-			if status.BatteryDischarging == false {
-
-				err = d.client.SwitchOperatingModeToManual(status.OperatingMode)
-				if err != nil {
-					d.log.With(sl.Err(err)).Error("switching operating mode")
-					continue
-				}
-
-				dischargePower := d.calculateRate(status.RemainingCapacityWh, stopTime)
-				log = log.With(slog.Int("discharge_power", dischargePower))
-				if dischargePower == 0 {
-					log.Warn("discharge power is zero, stopping discharge")
-					err = d.client.StopDischarge()
-					if err != nil {
-						d.log.With(sl.Err(err)).Error("stopping discharge")
-						continue
-					}
-					return
-				}
-
-				log.Info("starting discharge")
-				err = d.client.StartDischarge(dischargePower)
-				if err != nil {
-					d.log.With(sl.Err(err)).Error("starting discharge")
-				}
-
-			} else {
-				log.Info("discharge is running")
-			}
-
-		case <-stopTimer.C:
-			d.log.Info("stop time reached, stopping discharge")
-			err := d.client.StopDischarge()
-			if err != nil {
-				d.log.With(sl.Err(err)).Error("stopping discharge")
-			}
-			return
 		}
 	}
 }
 
+// isReadyToDischarge checks if the battery is ready to start discharging based on status, remaining capacity, and SoC limits.
+func (d *Discharge) isReadyToDischarge() bool {
+	return d.status != nil && d.status.RemainingCapacityWh > d.capacityLimit && d.status.RSOC > d.socLimit
+}
+
+// isTimeToDischarge determines whether the current time falls within the specified discharge time window.
+func (d *Discharge) isTimeToDischarge() bool {
+	// Calculate the start and stop times for today
+	startTime, err := timer.ParseTime(d.startTime)
+	if err != nil {
+		d.log.With(sl.Err(err)).Error("parsing start time")
+		return false
+	}
+	stopTime, err := timer.ParseTime(d.stopTime)
+	if err != nil {
+		d.log.With(sl.Err(err)).Error("parsing stop time")
+		return false
+	}
+	if startTime.After(stopTime) {
+		stopTime = stopTime.Add(24 * time.Hour)
+	}
+	now := time.Now()
+	return now.After(startTime) && now.Before(stopTime)
+}
+
+// runDischarge manages the discharge process of the battery based on its current status and predefined limits.
+func (d *Discharge) runDischarge() {
+	if d.status == nil {
+		return
+	}
+	log := d.log.With(
+		slog.String("operating_mode", d.status.OperatingMode),
+		slog.Float64("remaining capacity", d.status.RemainingCapacityWh),
+		slog.Float64("SoC", d.status.RSOC),
+		slog.Float64("consumption", d.status.ConsumptionW),
+		slog.Bool("discharge", d.status.BatteryDischarging),
+	)
+
+	if d.isDischarging {
+		if !d.isReadyToDischarge() {
+			log.Info("battery level reached the limit, stopping discharge")
+			err := d.stopDischarge()
+			if err != nil {
+				d.log.With(sl.Err(err)).Error("stopping discharge")
+				return
+			}
+		}
+		return
+	}
+
+	err := d.client.SwitchOperatingModeToManual(d.status.OperatingMode)
+	if err != nil {
+		d.log.With(sl.Err(err)).Error("switching operating mode")
+		return
+	}
+
+	log.Info("starting discharge")
+	err = d.client.StartDischarge(d.powerLimit)
+	if err != nil {
+		d.log.With(sl.Err(err)).Error("starting discharge")
+		return
+	}
+	d.isDischarging = true
+
+}
+
+// stopDischarge stops the current discharge activity if it is ongoing.
+// Returns an error if the operation fails at any point.
+func (d *Discharge) stopDischarge() error {
+	if d.isDischarging {
+
+		err := d.client.StopDischarge()
+		if err != nil {
+			return err
+		}
+
+		if d.status != nil {
+			err = d.client.SwitchOperatingModeToAuto(d.status.OperatingMode)
+			if err != nil {
+				return err
+			}
+		}
+
+		d.isDischarging = false
+	}
+	return nil
+}
+
 // calculate discharge rate as Wh/h
-func (d *Discharge) calculateRate(capacity float64, stopTime time.Time) int {
-	estimate := capacity - d.capacityLimit
-	if estimate <= 0 {
-		return 0
+//func (d *Discharge) calculateRate(capacity float64, stopTime time.Time) int {
+//	estimate := capacity - d.capacityLimit
+//	if estimate <= 0 {
+//		return 0
+//	}
+//	remainingTime := stopTime.Sub(time.Now())
+//	if remainingTime <= 0 {
+//		return 0
+//	}
+//	rate := estimate / remainingTime.Hours()
+//	if rate > float64(d.powerLimit) {
+//		return d.powerLimit
+//	}
+//	return int(rate)
+//}
+
+// observeStatus updates various battery status metrics through external observers.
+// If the status is nil, the method returns immediately.
+func (d *Discharge) observeStatus() {
+	if d.status == nil {
+		return
 	}
-	remainingTime := stopTime.Sub(time.Now())
-	if remainingTime <= 0 {
-		return 0
-	}
-	rate := estimate / remainingTime.Hours()
-	if rate > float64(d.powerLimit) {
-		return d.powerLimit
-	}
-	return int(rate)
+	go func(status *entity.SystemStatus) {
+		observers.UpdateSoC(d.name, status.RSOC)
+		observers.UpdateCapacity(d.name, status.RemainingCapacityWh)
+		observers.UpdateConsumption(d.name, status.ConsumptionW)
+		observers.UpdatePac(d.name, status.PacTotalW)
+		observers.UpdateDischargeState(d.name, status.BatteryDischarging)
+	}(d.status)
 }

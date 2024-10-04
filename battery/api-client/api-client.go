@@ -75,7 +75,10 @@ func (c *ApiClient) SwitchOperatingModeToManual(currentMode string) error {
 
 // SwitchOperatingModeToAuto switches the operating mode of the API client to automatic.
 // It sends a request to change the operating mode to automatic.
-func (c *ApiClient) SwitchOperatingModeToAuto() error {
+func (c *ApiClient) SwitchOperatingModeToAuto(currentMode string) error {
+	if currentMode == opModeAuto {
+		return nil
+	}
 	return c.doRequestChangeConfig("EM_OperatingMode", opModeAuto)
 }
 

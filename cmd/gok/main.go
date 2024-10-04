@@ -7,6 +7,7 @@ import (
 	"gok-pi/internal/config"
 	"gok-pi/internal/lib/logger"
 	"gok-pi/internal/lib/sl"
+	"gok-pi/metrics/server"
 	"log/slog"
 	"sync"
 )
@@ -38,6 +39,17 @@ func main() {
 		return
 	}
 
+	if conf.Metrics.Enabled {
+		lg.Info("starting metrics server", slog.String("bind", conf.Metrics.Bind), slog.String("port", conf.Metrics.Port))
+		go func() {
+			err := server.Listen(conf.Metrics.Bind, conf.Metrics.Port)
+			if err != nil {
+				lg.Error("metrics server", sl.Err(err))
+				return
+			}
+		}()
+	}
+
 	var wg sync.WaitGroup
 
 	for _, b := range batteries {
@@ -48,10 +60,14 @@ func main() {
 			log := lg.With(slog.String("battery", workerId))
 			api := apiclient.New(b.Url, b.Token, log)
 
-			worker, err := discharger.New(conf.StartTime, conf.StopTime, b.CapacityLimit, b.PowerLimit, api, log)
+			worker, err := discharger.New(workerId, api, log)
 			if err != nil {
 				log.Error("creating discharge worker", sl.Err(err))
 			}
+
+			worker.SetTime(conf.StartTime, conf.StopTime)
+			worker.SetLimits(b.CapacityLimit, b.PowerLimit, b.SocLimit)
+
 			err = worker.Run()
 			if err != nil {
 				log.Error("running discharge worker", sl.Err(err))
