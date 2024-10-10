@@ -15,6 +15,16 @@ func UpdateSoC(name string, value float64) {
 	socGauge.WithLabelValues(name).Set(value)
 }
 
+var uSocGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Namespace: "battery",
+	Name:      "USoC",
+	Help:      "User state of charge in percent",
+}, []string{"name"})
+
+func UpdateUSoC(name string, value float64) {
+	uSocGauge.WithLabelValues(name).Set(value)
+}
+
 var capacityGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
 	Namespace: "battery",
 	Name:      "RemainingCapacity_W",

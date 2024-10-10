@@ -189,6 +189,7 @@ func (d *Discharge) observeStatus() {
 	}
 	go func(status *entity.SystemStatus) {
 		observers.UpdateSoC(d.name, status.RSOC)
+		observers.UpdateUSoC(d.name, status.USOC)
 		observers.UpdateCapacity(d.name, status.RemainingCapacityWh)
 		observers.UpdateConsumption(d.name, status.ConsumptionW)
 		observers.UpdatePac(d.name, status.PacTotalW)
