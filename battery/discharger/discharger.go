@@ -82,9 +82,9 @@ func (d *Discharge) Run() error {
 	}
 }
 
-// isReadyToDischarge checks if the battery is ready to start discharging based on status, remaining capacity, and SoC limits.
+// isReadyToDischarge checks if the battery is ready to start discharging based on status and SoC limit.
 func (d *Discharge) isReadyToDischarge() bool {
-	return d.status != nil && d.status.RemainingCapacityWh > d.capacityLimit && d.status.RSOC > d.socLimit
+	return d.status != nil && d.status.USOC > d.socLimit
 }
 
 // isTimeToDischarge determines whether the current time falls within the specified discharge time window.
