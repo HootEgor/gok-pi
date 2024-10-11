@@ -60,7 +60,7 @@ func main() {
 			log := lg.With(slog.String("battery", workerId))
 			api := apiclient.New(b.Url, b.Token, log)
 
-			worker, err := discharger.New(workerId, api, log)
+			worker, err := discharger.New(workerId, b.Discharge, api, log)
 			if err != nil {
 				log.Error("creating discharge worker", sl.Err(err))
 			}

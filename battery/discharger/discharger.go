@@ -19,6 +19,7 @@ type Client interface {
 
 type Discharge struct {
 	name          string
+	discharge     bool
 	startTime     string
 	stopTime      string
 	capacityLimit float64
@@ -30,11 +31,12 @@ type Discharge struct {
 	log           *slog.Logger
 }
 
-func New(name string, client Client, log *slog.Logger) (*Discharge, error) {
+func New(name string, discharge bool, client Client, log *slog.Logger) (*Discharge, error) {
 	return &Discharge{
-		name:   name,
-		client: client,
-		log:    log.With(sl.Module("battery.discharge")),
+		name:      name,
+		discharge: discharge,
+		client:    client,
+		log:       log.With(sl.Module("battery.discharge")),
 	}, nil
 }
 
@@ -63,6 +65,10 @@ func (d *Discharge) Run() error {
 			}
 			d.status = status
 			d.observeStatus()
+
+			if !d.discharge {
+				continue
+			}
 
 			if d.isTimeToDischarge() && d.isReadyToDischarge() {
 				d.runDischarge()

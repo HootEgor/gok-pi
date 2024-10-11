@@ -20,6 +20,7 @@ type BatteryConfig struct {
 	Url           string `yaml:"url" env-default:"https://example.battery/api"`
 	Token         string `yaml:"token" env-default:"auth-token"`
 	Enabled       bool   `yaml:"enabled" env-default:"true"`
+	Discharge     bool   `yaml:"discharge" env-default:"false"`
 	CapacityLimit int    `yaml:"capacity_limit" env-default:"20000"`
 	PowerLimit    int    `yaml:"power_limit" env-default:"1000"`
 	SocLimit      int    `yaml:"soc_limit" env-default:"50"`

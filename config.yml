@@ -12,6 +12,7 @@ batteries:
     url: https://example.battery1/api
     token: auth-token1
     enabled: true
+    discharge: true
     capacity_limit: 10000
     power_limit: 500
     soc_limit: 50
@@ -19,6 +20,7 @@ batteries:
     url: https://example.battery2/api
     token: auth-token2
     enabled: false
+    discharge: false
     capacity_limit: 5000
     power_limit: 250
     soc_limit: 50
@@ -26,6 +28,7 @@ batteries:
     url: https://example.battery3/api
     token: auth-token3
     enabled: true
+    discharge: false
     capacity_limit: 5000
     power_limit: 250
     soc_limit: 50
