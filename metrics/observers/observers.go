@@ -3,6 +3,7 @@ package observers
 import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"strconv"
 )
 
 var socGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
@@ -67,4 +68,18 @@ func UpdateDischargeState(name string, state bool) {
 	} else {
 		dischargeStateGauge.WithLabelValues(name).Set(0.0)
 	}
+}
+
+var opModeGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	Namespace: "battery",
+	Name:      "BatteryOperatingMode",
+	Help:      "Operating mode: 1 - manual, 2 - auto",
+}, []string{"name"})
+
+func UpdateOpMode(name string, value string) {
+	state, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return
+	}
+	opModeGauge.WithLabelValues(name).Set(state)
 }

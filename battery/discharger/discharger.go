@@ -200,5 +200,6 @@ func (d *Discharge) observeStatus() {
 		observers.UpdateConsumption(d.name, status.ConsumptionW)
 		observers.UpdatePac(d.name, status.PacTotalW)
 		observers.UpdateDischargeState(d.name, status.BatteryDischarging)
+		observers.UpdateOpMode(d.name, status.OperatingMode)
 	}(d.status)
 }
